@@ -3,8 +3,9 @@
 ## 프로젝트 개요
 - **목적**: 호스피탈리티 도메인의 예약 시스템 구현
 - **기술 스택**: Spring WebFlux + Kotlin
+- **Java 버전**: Java 21 (LTS)
 - **학습 목표**: 실무 프로젝트 기반으로 Spring WebFlux와 Kotlin 학습
-- **특이사항**: 각 비즈니스 로직을 Java와 Kotlin 두 버전으로 구현하여 비교 학습
+- **특이사항**: 각 비즈니스 로직을 Java 21과 Kotlin 두 버전으로 구현하여 비교 학습
 
 ## 프로젝트 설정
 - GitHub Repository: https://github.com/SongJunSub/Reservation
