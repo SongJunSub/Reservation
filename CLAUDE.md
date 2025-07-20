@@ -48,8 +48,41 @@
 - **Message**: Kafka (이벤트 기반)
 - **웹**: Spring WebFlux (논블로킹)
 
+## 프로젝트 구조
+```
+src/main/
+├── kotlin/com/example/reservation/
+│   ├── domain/          # 도메인 엔티티 및 비즈니스 로직
+│   │   ├── reservation/ # 예약 도메인
+│   │   ├── guest/       # 고객 도메인  
+│   │   ├── room/        # 객실 도메인
+│   │   ├── payment/     # 결제 도메인
+│   │   └── availability/# 가용성 도메인
+│   ├── application/     # 유스케이스 및 서비스
+│   │   ├── usecase/     # 비즈니스 유스케이스
+│   │   └── service/     # 애플리케이션 서비스
+│   ├── infrastructure/ # 외부 시스템 연동
+│   │   ├── persistence/ # 데이터베이스 접근
+│   │   ├── messaging/   # Kafka 메시징
+│   │   ├── cache/       # Redis 캐싱
+│   │   └── config/      # 설정
+│   └── presentation/   # API 레이어
+│       ├── rest/        # REST API
+│       └── handler/     # WebFlux 핸들러
+└── java/com/example/reservation/ # Java 비교 구현
+```
+
+## 기술 문서
+`document/` 디렉토리에 각 기술별 학습 자료 및 참고 문서 구성:
+- spring-webflux: 리액티브 프로그래밍 개념
+- jpa-querydsl: 블로킹 데이터 접근 패턴  
+- r2dbc: 리액티브 데이터 접근 패턴
+- kafka: 메시징 및 이벤트 기반 아키텍처
+- redis: 캐싱 전략
+- kotlin-coroutines: 코루틴 vs Virtual Threads
+- architecture: 헥사고날 아키텍처 설계
+
 ## 다음 단계
-- 프로젝트 구조 생성
 - 도메인 모델 구현 (Java 21 vs Kotlin 비교)
 - WebFlux 핸들러 및 라우터 구현
 
