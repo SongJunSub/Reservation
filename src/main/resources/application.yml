@@ -1,0 +1,56 @@
+spring:
+  application:
+    name: reservation-system
+  
+  # JPA Configuration (Blocking)
+  datasource:
+    url: jdbc:postgresql://localhost:5432/reservation_db
+    username: reservation_user
+    password: reservation_pass
+    driver-class-name: org.postgresql.Driver
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  
+  # R2DBC Configuration (Reactive)
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/reservation_db
+    username: reservation_user
+    password: reservation_pass
+  
+  # Redis Configuration
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      timeout: 2000ms
+  
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: reservation-service
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.example.reservation"
+
+# Server Configuration
+server:
+  port: 8080
+
+# Logging
+logging:
+  level:
+    com.example.reservation: DEBUG
+    org.springframework.r2dbc: DEBUG
+    org.hibernate.SQL: DEBUG

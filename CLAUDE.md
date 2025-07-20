@@ -39,10 +39,14 @@
 - **Payment**: 결제 관리
 - **Availability**: 예약 가능성 관리
 
-### 기술 스택
-- **Database**: R2DBC + PostgreSQL (리액티브)
+### 기술 스택 (하이브리드 접근)
+- **Database**: 
+  - JPA + QueryDSL (블로킹, 복잡한 쿼리용)
+  - R2DBC (리액티브, 단순 조회용)
+  - PostgreSQL
 - **Cache**: Redis (비동기)
 - **Message**: Kafka (이벤트 기반)
+- **웹**: Spring WebFlux (논블로킹)
 
 ## 다음 단계
 - 프로젝트 구조 생성
