@@ -19,9 +19,35 @@
 4. WebFlux 리액티브 프로그래밍과 Kotlin 코루틴 비교
 5. Java vs Kotlin 코드 비교를 통한 학습
 
+## 아키텍처 설계
+### 패턴
+- **Hexagonal Architecture (Clean Architecture)** 채택
+- 도메인 로직과 외부 의존성 분리, 리액티브 스트림과 적합
+
+### 레이어 구조
+```
+├── domain/           # 도메인 엔티티, 비즈니스 로직
+├── application/      # 유스케이스, 서비스 로직  
+├── infrastructure/   # 데이터베이스, 외부 API 연동
+└── presentation/     # REST API, WebFlux 핸들러
+```
+
+### 주요 도메인
+- **Reservation**: 예약 관리
+- **Guest**: 고객 관리
+- **Room/Property**: 숙박 시설 관리
+- **Payment**: 결제 관리
+- **Availability**: 예약 가능성 관리
+
+### 기술 스택
+- **Database**: R2DBC + PostgreSQL (리액티브)
+- **Cache**: Redis (비동기)
+- **Message**: Kafka (이벤트 기반)
+
 ## 다음 단계
-- 도메인 모델, API 엔드포인트, 데이터 레이어 중 어떤 부분부터 시작할지 결정
-- 호스피탈리티 도메인의 예약 시스템 요구사항 정의
+- 프로젝트 구조 생성
+- 도메인 모델 구현 (Java 21 vs Kotlin 비교)
+- WebFlux 핸들러 및 라우터 구현
 
 ## 작업 방식
 - **문서화**: 모든 작업 진행사항을 CLAUDE.md에 지속적으로 업데이트
