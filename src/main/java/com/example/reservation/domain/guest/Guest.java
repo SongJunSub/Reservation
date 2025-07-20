@@ -1,21 +1,29 @@
 package com.example.reservation.domain.guest;
 
 import jakarta.persistence.*;
+import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.Objects;
 
 @Entity
 @Table(name = "guests")
 @EntityListeners(AuditingEntityListener.class)
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+@EqualsAndHashCode(onlyExplicitlyIncluded = true)
+@ToString(exclude = {"preferences", "address"})
 public class Guest {
     
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @EqualsAndHashCode.Include
     private Long id;
     
     @Column(nullable = false, length = 100)
@@ -38,33 +46,41 @@ public class Guest {
     
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @Builder.Default
     private Gender gender = Gender.NOT_SPECIFIED;
     
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @Builder.Default
     private Language preferredLanguage = Language.ENGLISH;
     
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @Builder.Default
     private LoyaltyTier loyaltyTier = LoyaltyTier.STANDARD;
     
     @Column(nullable = false)
+    @Builder.Default
     private Integer loyaltyPoints = 0;
     
     @Embedded
     private Address address;
     
     @Embedded
+    @Builder.Default
     private GuestPreferences preferences = new GuestPreferences();
     
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
+    @Builder.Default
     private GuestStatus status = GuestStatus.ACTIVE;
     
     @Column(nullable = false)
+    @Builder.Default
     private Boolean isEmailVerified = false;
     
     @Column(nullable = false)
+    @Builder.Default
     private Boolean isPhoneVerified = false;
     
     @CreatedDate
@@ -77,18 +93,6 @@ public class Guest {
     
     @Column
     private LocalDateTime lastLoginAt;
-    
-    // 기본 생성자
-    protected Guest() {}
-    
-    // 생성자
-    public Guest(String firstName, String lastName, String email) {
-        this.firstName = firstName;
-        this.lastName = lastName;
-        this.email = email;
-        this.createdAt = LocalDateTime.now();
-        this.lastModifiedAt = LocalDateTime.now();
-    }
     
     // 비즈니스 메서드
     public String getFullName() {
@@ -128,85 +132,15 @@ public class Guest {
         this.status = GuestStatus.BLACKLISTED;
     }
     
-    // Getters and Setters
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    
-    public String getFirstName() { return firstName; }
-    public void setFirstName(String firstName) { this.firstName = firstName; }
-    
-    public String getLastName() { return lastName; }
-    public void setLastName(String lastName) { this.lastName = lastName; }
-    
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
-    
-    public String getPhoneNumber() { return phoneNumber; }
-    public void setPhoneNumber(String phoneNumber) { this.phoneNumber = phoneNumber; }
-    
-    public String getNationality() { return nationality; }
-    public void setNationality(String nationality) { this.nationality = nationality; }
-    
-    public LocalDate getDateOfBirth() { return dateOfBirth; }
-    public void setDateOfBirth(LocalDate dateOfBirth) { this.dateOfBirth = dateOfBirth; }
-    
-    public Gender getGender() { return gender; }
-    public void setGender(Gender gender) { this.gender = gender; }
-    
-    public Language getPreferredLanguage() { return preferredLanguage; }
-    public void setPreferredLanguage(Language preferredLanguage) { this.preferredLanguage = preferredLanguage; }
-    
-    public LoyaltyTier getLoyaltyTier() { return loyaltyTier; }
-    public void setLoyaltyTier(LoyaltyTier loyaltyTier) { this.loyaltyTier = loyaltyTier; }
-    
-    public Integer getLoyaltyPoints() { return loyaltyPoints; }
-    public void setLoyaltyPoints(Integer loyaltyPoints) { this.loyaltyPoints = loyaltyPoints; }
-    
-    public Address getAddress() { return address; }
-    public void setAddress(Address address) { this.address = address; }
-    
-    public GuestPreferences getPreferences() { return preferences; }
-    public void setPreferences(GuestPreferences preferences) { this.preferences = preferences; }
-    
-    public GuestStatus getStatus() { return status; }
-    public void setStatus(GuestStatus status) { this.status = status; }
-    
-    public Boolean getIsEmailVerified() { return isEmailVerified; }
-    public void setIsEmailVerified(Boolean isEmailVerified) { this.isEmailVerified = isEmailVerified; }
-    
-    public Boolean getIsPhoneVerified() { return isPhoneVerified; }
-    public void setIsPhoneVerified(Boolean isPhoneVerified) { this.isPhoneVerified = isPhoneVerified; }
-    
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
-    
-    public LocalDateTime getLastModifiedAt() { return lastModifiedAt; }
-    public void setLastModifiedAt(LocalDateTime lastModifiedAt) { this.lastModifiedAt = lastModifiedAt; }
-    
-    public LocalDateTime getLastLoginAt() { return lastLoginAt; }
-    public void setLastLoginAt(LocalDateTime lastLoginAt) { this.lastLoginAt = lastLoginAt; }
-    
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-        Guest guest = (Guest) obj;
-        return Objects.equals(id, guest.id) && id != null;
+    public void deactivate() {
+        this.status = GuestStatus.INACTIVE;
     }
     
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
+    public double getApplicableDiscount() {
+        return loyaltyTier.getDiscountPercentage();
     }
     
-    @Override
-    public String toString() {
-        return "Guest{" +
-                "id=" + id +
-                ", firstName='" + firstName + '\'' +
-                ", lastName='" + lastName + '\'' +
-                ", email='" + email + '\'' +
-                ", status=" + status +
-                '}';
+    public boolean isVip() {
+        return loyaltyTier.ordinal() >= LoyaltyTier.GOLD.ordinal();
     }
 }
