@@ -1,4 +1,4 @@
-package com.example.reservation.domain.guest;
+package com.example.reservation.domain.guest_java;
 
 public enum Language {
     ENGLISH, KOREAN, JAPANESE, CHINESE_SIMPLIFIED, CHINESE_TRADITIONAL, 

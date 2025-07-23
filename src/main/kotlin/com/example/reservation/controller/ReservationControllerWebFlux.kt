@@ -45,6 +45,7 @@ class ReservationControllerWebFlux(
         return Mono.fromCallable {
             reservationService.updateFromWebFluxRequest(id, request)
         }.filter { it != null }
+            .cast(Reservation::class.java)
     }
 
     @DeleteMapping("/{id}")

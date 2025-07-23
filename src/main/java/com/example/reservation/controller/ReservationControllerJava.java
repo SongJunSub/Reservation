@@ -1,7 +1,7 @@
 package com.example.reservation.controller;
 
 import com.example.reservation.domain.reservation.Reservation;
-import com.example.reservation.service.ReservationService;
+// ReservationServiceJava는 같은 패키지에 있음
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -13,10 +13,10 @@ import java.util.UUID;
 @RequestMapping("/api/java/reservations")
 public class ReservationControllerJava {
 
-    private final ReservationService reservationService;
+    private final ReservationServiceJava reservationService;
 
     // 생성자 주입
-    public ReservationControllerJava(ReservationService reservationService) {
+    public ReservationControllerJava(ReservationServiceJava reservationService) {
         this.reservationService = reservationService;
     }
 
@@ -65,7 +65,7 @@ public class ReservationControllerJava {
     }
 }
 
-// Java DTO 클래스들
+// Java DTO 클래스들 (package-private for same-package access)
 class CreateReservationRequestJava {
     private String guestName;
     private String roomNumber;

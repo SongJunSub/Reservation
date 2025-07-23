@@ -1,7 +1,7 @@
 package com.example.reservation.controller;
 
 import com.example.reservation.domain.reservation.Reservation;
-import com.example.reservation.service.ReservationService;
+// ReservationServiceJava는 같은 패키지에 있음
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
@@ -14,9 +14,9 @@ import java.util.UUID;
 @RequestMapping("/api/webflux-java/reservations")
 public class ReservationControllerWebFluxJava {
 
-    private final ReservationService reservationService;
+    private final ReservationServiceJava reservationService;
 
-    public ReservationControllerWebFluxJava(ReservationService reservationService) {
+    public ReservationControllerWebFluxJava(ReservationServiceJava reservationService) {
         this.reservationService = reservationService;
     }
 
@@ -83,7 +83,7 @@ public class ReservationControllerWebFluxJava {
     }
 }
 
-// Java WebFlux DTO 클래스들
+// Java WebFlux DTO 클래스들 (package-private)
 class CreateReservationRequestWebFluxJava {
     private String guestName;
     private String roomNumber;

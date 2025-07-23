@@ -1,4 +1,4 @@
-package com.example.reservation.domain.guest;
+package com.example.reservation.domain.guest_java;
 
 import jakarta.persistence.*;
 import org.springframework.data.annotation.CreatedDate;

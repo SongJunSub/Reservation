@@ -4,10 +4,6 @@ import com.example.reservation.controller.CreateReservationRequest
 import com.example.reservation.controller.UpdateReservationRequest
 import com.example.reservation.controller.CreateReservationRequestWebFlux
 import com.example.reservation.controller.UpdateReservationRequestWebFlux
-import com.example.reservation.controller.CreateReservationRequestJava
-import com.example.reservation.controller.UpdateReservationRequestJava
-import com.example.reservation.controller.CreateReservationRequestWebFluxJava
-import com.example.reservation.controller.UpdateReservationRequestWebFluxJava
 import com.example.reservation.domain.reservation.Reservation
 import com.example.reservation.domain.reservation.ReservationStatus
 import com.example.reservation.domain.reservation.PaymentStatus
@@ -116,27 +112,6 @@ class ReservationService {
         return reservations.remove(id) != null
     }
 
-    // Java용 메서드들
-    fun createFromJavaRequest(request: CreateReservationRequestJava): Reservation {
-        return create(CreateReservationRequest(
-            guestName = request.guestName,
-            roomNumber = request.roomNumber,
-            checkInDate = request.checkInDate,
-            checkOutDate = request.checkOutDate,
-            totalAmount = request.totalAmount
-        ))
-    }
-
-    fun updateFromJavaRequest(id: UUID, request: UpdateReservationRequestJava): Reservation? {
-        return update(id, UpdateReservationRequest(
-            guestName = request.guestName,
-            roomNumber = request.roomNumber,
-            checkInDate = request.checkInDate,
-            checkOutDate = request.checkOutDate,
-            totalAmount = request.totalAmount
-        ))
-    }
-
     // WebFlux용 메서드들
     fun createFromWebFluxRequest(request: CreateReservationRequestWebFlux): Reservation {
         return create(CreateReservationRequest(
@@ -158,26 +133,6 @@ class ReservationService {
         ))
     }
 
-    // WebFlux Java용 메서드들
-    fun createFromWebFluxJavaRequest(request: CreateReservationRequestWebFluxJava): Reservation {
-        return create(CreateReservationRequest(
-            guestName = request.guestName,
-            roomNumber = request.roomNumber,
-            checkInDate = request.checkInDate,
-            checkOutDate = request.checkOutDate,
-            totalAmount = request.totalAmount
-        ))
-    }
-
-    fun updateFromWebFluxJavaRequest(id: UUID, request: UpdateReservationRequestWebFluxJava): Reservation? {
-        return update(id, UpdateReservationRequest(
-            guestName = request.guestName,
-            roomNumber = request.roomNumber,
-            checkInDate = request.checkInDate,
-            checkOutDate = request.checkOutDate,
-            totalAmount = request.totalAmount
-        ))
-    }
 
     private fun generateConfirmationNumber(): String {
         return "CONF-${UUID.randomUUID().toString().substring(0, 8).uppercase()}"
