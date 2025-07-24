@@ -5,114 +5,107 @@ import com.example.reservation.controller.UpdateReservationRequest
 import com.example.reservation.controller.CreateReservationRequestWebFlux
 import com.example.reservation.controller.UpdateReservationRequestWebFlux
 import com.example.reservation.domain.reservation.Reservation
-import com.example.reservation.domain.reservation.ReservationStatus
-import com.example.reservation.domain.reservation.PaymentStatus
-import com.example.reservation.domain.reservation.ReservationSource
-import com.example.reservation.domain.reservation.ReservationGuestDetails
-import com.example.reservation.domain.reservation.ReservationPreferences
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
-import java.math.BigDecimal
-import java.time.LocalDate
-import java.time.LocalDateTime
+import reactor.core.publisher.Flux
 import java.util.*
-import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * 예약 서비스 파사드
+ * 컨트롤러와 비즈니스 서비스 사이의 인터페이스 역할
+ */
 @Service
-class ReservationService {
+class ReservationService(
+    private val businessService: ReservationBusinessService
+) {
 
-    private val reservations = ConcurrentHashMap<UUID, Reservation>()
+    /**
+     * 페이징된 예약 목록 조회
+     */
+    fun findAll(pageable: Pageable): Page<Reservation> {
+        return businessService.getAllReservations(pageable)
+    }
 
+    /**
+     * 모든 예약 목록 조회 (하위 호환성)
+     */
     fun findAll(): List<Reservation> {
-        return reservations.values.toList()
+        return businessService.getAllReservations(Pageable.unpaged()).content
     }
 
+    /**
+     * ID로 예약 조회 (UUID -> Long 변환)
+     */
     fun findById(id: UUID): Reservation? {
-        return reservations[id]
+        // UUID를 Long ID로 변환하는 로직 (예: hash 또는 매핑)
+        val longId = id.hashCode().toLong()
+        return businessService.getReservationById(longId)
     }
 
+    /**
+     * Long ID로 예약 조회
+     */
+    fun findById(id: Long): Reservation? {
+        return businessService.getReservationById(id)
+    }
+
+    /**
+     * 확인번호로 예약 조회
+     */
+    fun findByConfirmationNumber(confirmationNumber: String): Reservation? {
+        return businessService.getReservationByConfirmationNumber(confirmationNumber)
+    }
+
+    /**
+     * 예약 생성
+     */
     fun create(request: CreateReservationRequest): Reservation {
-        // Create temporary guest and room objects
-        val tempGuest = com.example.reservation.domain.guest.Guest(
-            firstName = request.guestName.split(" ").first(),
-            lastName = request.guestName.split(" ").lastOrNull() ?: "",
-            email = "guest@example.com"
-        )
-        
-        val tempAddress = com.example.reservation.domain.guest.Address(
-            street = "123 Main St",
-            city = "City",
-            postalCode = "12345",
-            countryCode = "US"
-        )
-        
-        val tempProperty = com.example.reservation.domain.room.Property(
-            name = "Sample Hotel",
-            type = com.example.reservation.domain.room.PropertyType.HOTEL,
-            category = com.example.reservation.domain.room.PropertyCategory.BUSINESS,
-            starRating = 4,
-            address = tempAddress
-        )
-        
-        val tempRoom = com.example.reservation.domain.room.Room(
-            property = tempProperty,
-            roomNumber = request.roomNumber,
-            name = "Standard Room",
-            type = com.example.reservation.domain.room.RoomType.STANDARD,
-            bedType = com.example.reservation.domain.room.BedType.QUEEN,
-            maxOccupancy = 2,
-            standardOccupancy = 2,
-            baseRate = BigDecimal.valueOf(request.totalAmount),
-            size = 25.0,
-            floor = 1
-        )
-        
-        val reservation = Reservation(
-            id = 0L, // JPA will assign the actual ID
-            confirmationNumber = generateConfirmationNumber(),
-            guest = tempGuest,
-            room = tempRoom,
-            checkInDate = LocalDate.parse(request.checkInDate),
-            checkOutDate = LocalDate.parse(request.checkOutDate),
-            numberOfGuests = 1,
-            numberOfAdults = 1,
-            numberOfChildren = 0,
-            totalAmount = BigDecimal.valueOf(request.totalAmount),
-            roomRate = BigDecimal.valueOf(request.totalAmount),
-            status = ReservationStatus.PENDING,
-            paymentStatus = PaymentStatus.PENDING,
-            guestDetails = ReservationGuestDetails(
-                primaryGuestFirstName = request.guestName.split(" ").first(),
-                primaryGuestLastName = request.guestName.split(" ").lastOrNull() ?: "",
-                primaryGuestEmail = "guest@example.com"
-            ),
-            source = ReservationSource.DIRECT
-        )
-        
-        val uuid = UUID.randomUUID()
-        reservations[uuid] = reservation
-        return reservation
+        return businessService.createReservation(request)
     }
 
+    /**
+     * 예약 수정 (UUID 버전)
+     */
     fun update(id: UUID, request: UpdateReservationRequest): Reservation? {
-        val existingReservation = reservations[id] ?: return null
-        
-        val updatedReservation = existingReservation.copy(
-            checkInDate = request.checkInDate?.let { LocalDate.parse(it) } ?: existingReservation.checkInDate,
-            checkOutDate = request.checkOutDate?.let { LocalDate.parse(it) } ?: existingReservation.checkOutDate,
-            totalAmount = request.totalAmount?.let { BigDecimal.valueOf(it) } ?: existingReservation.totalAmount,
-            roomRate = request.totalAmount?.let { BigDecimal.valueOf(it) } ?: existingReservation.roomRate,
-            lastModifiedAt = LocalDateTime.now()
-        )
-        
-        reservations[id] = updatedReservation
-        return updatedReservation
+        val longId = id.hashCode().toLong()
+        return businessService.updateReservation(longId, request)
     }
 
+    /**
+     * 예약 수정 (Long 버전)
+     */
+    fun update(id: Long, request: UpdateReservationRequest): Reservation? {
+        return businessService.updateReservation(id, request)
+    }
+
+    /**
+     * 예약 삭제 (UUID 버전)
+     */
     fun delete(id: UUID): Boolean {
-        return reservations.remove(id) != null
+        val longId = id.hashCode().toLong()
+        return businessService.deleteReservation(longId)
     }
 
-    // WebFlux용 메서드들
+    /**
+     * 예약 삭제 (Long 버전)
+     */
+    fun delete(id: Long): Boolean {
+        return businessService.deleteReservation(id)
+    }
+
+    /**
+     * 예약 취소
+     */
+    fun cancel(id: Long, reason: String?): Reservation? {
+        return businessService.cancelReservation(id, reason ?: "고객 요청")
+    }
+
+    // === WebFlux 호환 메서드들 ===
+
+    /**
+     * WebFlux 요청으로 예약 생성
+     */
     fun createFromWebFluxRequest(request: CreateReservationRequestWebFlux): Reservation {
         return create(CreateReservationRequest(
             guestName = request.guestName,
@@ -123,6 +116,9 @@ class ReservationService {
         ))
     }
 
+    /**
+     * WebFlux 요청으로 예약 수정
+     */
     fun updateFromWebFluxRequest(id: UUID, request: UpdateReservationRequestWebFlux): Reservation? {
         return update(id, UpdateReservationRequest(
             guestName = request.guestName,
@@ -133,8 +129,26 @@ class ReservationService {
         ))
     }
 
+    // === 리액티브 스트림 메서드들 ===
 
-    private fun generateConfirmationNumber(): String {
-        return "CONF-${UUID.randomUUID().toString().substring(0, 8).uppercase()}"
+    /**
+     * 실시간 예약 스트림
+     */
+    fun getReservationStream(): Flux<Reservation> {
+        return businessService.getReservationStream()
+    }
+
+    /**
+     * 고객별 예약 이력 스트림
+     */
+    fun getGuestReservationStream(email: String): Flux<Reservation> {
+        return businessService.getGuestReservationStream(email)
+    }
+
+    /**
+     * 오늘 체크인 스트림
+     */
+    fun getTodayCheckInsStream(): Flux<Reservation> {
+        return businessService.getTodayCheckInsStream()
     }
 }
