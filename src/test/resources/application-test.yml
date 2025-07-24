@@ -1,0 +1,59 @@
+# 테스트 환경 설정
+spring:
+  profiles:
+    active: test
+    
+  # 테스트용 데이터소스 (Testcontainers가 동적으로 오버라이드)
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+    
+  # JPA 설정
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: true
+        
+  # R2DBC 설정 (Testcontainers가 동적으로 오버라이드)
+  r2dbc:
+    url: r2dbc:h2:mem:///testdb
+    username: sa
+    password: ""
+    
+  # 캐시 비활성화 (테스트 일관성을 위해)
+  cache:
+    type: none
+    
+  # 트랜잭션 관리
+  transaction:
+    default-timeout: 30s
+    
+  # 로깅 레벨
+logging:
+  level:
+    com.example.reservation: DEBUG
+    org.springframework.transaction: DEBUG
+    org.springframework.orm.jpa: DEBUG
+    org.springframework.jdbc: DEBUG
+    org.testcontainers: INFO
+    
+# 테스트용 애플리케이션 설정
+app:
+  shortener:
+    key-length: 6
+    alphanumeric-characters: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+# Actuator 비활성화 (테스트에서 불필요)
+management:
+  endpoints:
+    enabled-by-default: false
+    
+# 비동기 처리 비활성화 (테스트 예측가능성을 위해)
+async:
+  enabled: false
