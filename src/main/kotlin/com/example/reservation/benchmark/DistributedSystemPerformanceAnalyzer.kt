@@ -282,17 +282,249 @@ class DistributedSystemPerformanceAnalyzer {
     }
 
     /**
-     * 2단계: 데이터베이스 샤딩 성능 측정 (구현 예정)
+     * 2단계: 데이터베이스 샤딩 성능 측정
      */
-    suspend fun analyzeDatabaseSharding(): DatabaseShardingAnalysisResult {
+    suspend fun analyzeDatabaseSharding(): DatabaseShardingAnalysisResult = withContext(Dispatchers.IO) {
         println("🔍 Phase 2: Database Sharding Performance Analysis")
         
-        // TODO: 구현 예정
-        return DatabaseShardingAnalysisResult(
-            strategies = emptyMap(),
-            analysis = DatabaseShardingAnalysis("", "", ""),
-            recommendations = emptyList()
+        val shardingStrategies = listOf(
+            ShardingStrategy("RangeSharding", ShardingType.RANGE_BASED),
+            ShardingStrategy("HashSharding", ShardingType.HASH_BASED),
+            ShardingStrategy("DirectorySharding", ShardingType.DIRECTORY_BASED),
+            ShardingStrategy("ConsistentHashSharding", ShardingType.CONSISTENT_HASH),
+            ShardingStrategy("CompositeSharding", ShardingType.COMPOSITE)
         )
+        
+        val results = mutableMapOf<String, DatabaseShardingMetrics>()
+        
+        for (strategy in shardingStrategies) {
+            println("📊 Testing ${strategy.name} sharding strategy...")
+            results[strategy.name] = measureShardingPerformance(strategy)
+        }
+        
+        val analysis = analyzeShardingResults(results)
+        println("✅ Database sharding analysis completed")
+        
+        DatabaseShardingAnalysisResult(
+            strategies = results,
+            analysis = analysis,
+            recommendations = generateShardingRecommendations(results)
+        )
+    }
+
+    private suspend fun measureShardingPerformance(strategy: ShardingStrategy): DatabaseShardingMetrics {
+        val shards = createTestShards(4) // 4개 샤드로 구성
+        val shardingRouter = createShardingRouter(strategy, shards)
+        
+        // 다양한 쿼리 패턴 시뮬레이션
+        val queries = generateTestQueries(2000)
+        val results = mutableListOf<QueryResult>()
+        
+        // 워밍업
+        repeat(200) {
+            val warmupQuery = DatabaseQuery(
+                id = "warmup-$it",
+                type = QueryType.SELECT,
+                shardKey = "user-${kotlin.random.Random.nextInt(1, 1000)}",
+                affectedShards = 1
+            )
+            shardingRouter.routeQuery(warmupQuery)
+        }
+        
+        // 실제 측정
+        val startTime = System.currentTimeMillis()
+        
+        queries.asFlow()
+            .buffer(100) // 동시 쿼리 제한
+            .map { query ->
+                async {
+                    val queryStartTime = System.nanoTime()
+                    val result = shardingRouter.routeQuery(query)
+                    val queryEndTime = System.nanoTime()
+                    
+                    QueryResult(
+                        queryId = query.id,
+                        affectedShards = result.affectedShards,
+                        executionTimeNanos = queryEndTime - queryStartTime,
+                        success = result.success,
+                        crossShardOperation = result.affectedShards.size > 1
+                    )
+                }
+            }
+            .buffer(200)
+            .collect { deferred ->
+                results.add(deferred.await())
+            }
+        
+        val endTime = System.currentTimeMillis()
+        val totalDurationMs = endTime - startTime
+        
+        return calculateShardingMetrics(results, totalDurationMs, shards)
+    }
+
+    private fun createTestShards(count: Int): List<DatabaseShard> {
+        return (1..count).map { shardId ->
+            DatabaseShard(
+                id = "shard-$shardId",
+                partitionRange = when (count) {
+                    4 -> when (shardId) {
+                        1 -> "0000-2499"
+                        2 -> "2500-4999"
+                        3 -> "5000-7499"
+                        else -> "7500-9999"
+                    }
+                    else -> "$shardId"
+                },
+                capacity = 10000,
+                currentLoad = kotlin.random.Random.nextInt(1000, 8000),
+                averageQueryTimeMs = kotlin.random.Random.nextDouble(5.0, 50.0),
+                isHealthy = true
+            )
+        }
+    }
+
+    private fun createShardingRouter(strategy: ShardingStrategy, shards: List<DatabaseShard>): ShardingRouter {
+        return when (strategy.type) {
+            ShardingType.RANGE_BASED -> RangeBasedShardingRouter(shards)
+            ShardingType.HASH_BASED -> HashBasedShardingRouter(shards)
+            ShardingType.DIRECTORY_BASED -> DirectoryBasedShardingRouter(shards)
+            ShardingType.CONSISTENT_HASH -> ConsistentHashShardingRouter(shards)
+            ShardingType.COMPOSITE -> CompositeShardingRouter(shards)
+        }
+    }
+
+    private fun generateTestQueries(count: Int): List<DatabaseQuery> {
+        return (1..count).map { queryId ->
+            val queryType = QueryType.values().random()
+            val isComplexQuery = kotlin.random.Random.nextDouble() < 0.3 // 30% 복잡한 쿼리
+            val affectedShards = if (isComplexQuery) kotlin.random.Random.nextInt(2, 4) else 1
+            
+            DatabaseQuery(
+                id = "query-$queryId",
+                type = queryType,
+                shardKey = generateShardKey(queryType),
+                affectedShards = affectedShards,
+                isJoinQuery = isComplexQuery && kotlin.random.Random.nextBoolean(),
+                estimatedComplexity = if (isComplexQuery) QueryComplexity.HIGH else QueryComplexity.LOW
+            )
+        }
+    }
+
+    private fun generateShardKey(queryType: QueryType): String {
+        return when (queryType) {
+            QueryType.SELECT -> "user-${kotlin.random.Random.nextInt(1, 10000)}"
+            QueryType.INSERT -> "user-${kotlin.random.Random.nextInt(1, 10000)}"
+            QueryType.UPDATE -> "user-${kotlin.random.Random.nextInt(1, 10000)}"
+            QueryType.DELETE -> "user-${kotlin.random.Random.nextInt(1, 10000)}"
+            QueryType.JOIN -> "join-${kotlin.random.Random.nextInt(1, 1000)}"
+        }
+    }
+
+    private fun calculateShardingMetrics(
+        results: List<QueryResult>,
+        totalDurationMs: Long,
+        shards: List<DatabaseShard>
+    ): DatabaseShardingMetrics {
+        val successfulResults = results.filter { it.success }
+        val queryTimes = successfulResults.map { it.executionTimeNanos / 1_000_000.0 } // ms로 변환
+        
+        // 샤드별 쿼리 분배 분석
+        val shardDistribution = results.flatMap { result ->
+            result.affectedShards.map { shardId -> shardId }
+        }.groupBy { it }.mapValues { it.value.size }
+        
+        val totalQueries = shardDistribution.values.sum()
+        val idealDistribution = totalQueries.toDouble() / shards.size
+        val distributionVariance = shardDistribution.values.map { 
+            (it - idealDistribution).pow(2) 
+        }.average()
+        val dataDistributionBalance = 100.0 - (sqrt(distributionVariance) / idealDistribution * 100).coerceAtMost(100.0)
+        
+        // 크로스 샤드 쿼리 비율
+        val crossShardQueries = results.count { it.crossShardOperation }
+        val crossShardQueryRatio = (crossShardQueries.toDouble() / results.size) * 100
+        
+        // 샤드 활용률 분산
+        val shardUtilizations = shards.map { shard ->
+            val shardQueries = shardDistribution[shard.id] ?: 0
+            shardQueries.toDouble() / shard.capacity * 100
+        }
+        val utilizationVariance = shardUtilizations.map { util ->
+            (util - shardUtilizations.average()).pow(2)
+        }.average()
+        
+        return DatabaseShardingMetrics(
+            queryThroughputQps = successfulResults.size.toDouble() / (totalDurationMs / 1000.0),
+            averageQueryLatencyMs = queryTimes.average(),
+            dataDistributionBalance = dataDistributionBalance,
+            crossShardQueryRatio = crossShardQueryRatio,
+            shardUtilizationVariance = utilizationVariance
+        )
+    }
+
+    private fun analyzeShardingResults(results: Map<String, DatabaseShardingMetrics>): DatabaseShardingAnalysis {
+        val bestThroughput = results.maxByOrNull { it.value.queryThroughputQps }
+        val bestLatency = results.minByOrNull { it.value.averageQueryLatencyMs }
+        val bestDistribution = results.maxByOrNull { it.value.dataDistributionBalance }
+        val lowestCrossShardRatio = results.minByOrNull { it.value.crossShardQueryRatio }
+        
+        // 종합 점수 계산
+        val overallScores = results.mapValues { (_, metrics) ->
+            val throughputScore = metrics.queryThroughputQps / results.values.maxOf { it.queryThroughputQps }
+            val latencyScore = 1.0 - (metrics.averageQueryLatencyMs / results.values.maxOf { it.averageQueryLatencyMs })
+            val distributionScore = metrics.dataDistributionBalance / 100.0
+            val crossShardScore = 1.0 - (metrics.crossShardQueryRatio / 100.0)
+            
+            (throughputScore * 0.3 + latencyScore * 0.3 + distributionScore * 0.25 + crossShardScore * 0.15)
+        }
+        
+        val bestOverall = overallScores.maxByOrNull { it.value }
+        
+        // 데이터 분산 품질 평가
+        val avgDistributionBalance = results.values.map { it.dataDistributionBalance }.average()
+        val dataDistributionQuality = when {
+            avgDistributionBalance >= 90 -> "Excellent - 데이터가 매우 균등하게 분산됨"
+            avgDistributionBalance >= 75 -> "Good - 데이터 분산이 양호함"
+            avgDistributionBalance >= 60 -> "Fair - 일부 샤드에 데이터 편중"
+            else -> "Poor - 심각한 데이터 불균형"
+        }
+        
+        return DatabaseShardingAnalysis(
+            bestShardingStrategy = bestOverall?.key ?: "HashSharding",
+            dataDistributionQuality = dataDistributionQuality,
+            overallRecommendation = when (bestOverall?.key) {
+                "HashSharding" -> "균등한 데이터 분산을 위해 해시 기반 샤딩이 최적입니다"
+                "RangeSharding" -> "순차적 데이터 접근 패턴에는 범위 기반 샤딩이 효과적입니다"
+                "ConsistentHashSharding" -> "동적 스케일링이 필요한 환경에서는 일관성 해시가 적합합니다"
+                "DirectorySharding" -> "복잡한 쿼리 패턴에는 디렉토리 기반 샤딩이 유연성을 제공합니다"
+                else -> "현재 워크로드에는 ${bestOverall?.key} 전략이 가장 적합합니다"
+            }
+        )
+    }
+
+    private fun generateShardingRecommendations(results: Map<String, DatabaseShardingMetrics>): List<String> {
+        val recommendations = mutableListOf<String>()
+        
+        val avgCrossShardRatio = results.values.map { it.crossShardQueryRatio }.average()
+        val avgDistributionBalance = results.values.map { it.dataDistributionBalance }.average()
+        val avgUtilizationVariance = results.values.map { it.shardUtilizationVariance }.average()
+        
+        if (avgCrossShardRatio > 30.0) {
+            recommendations.add("크로스 샤드 쿼리 비율이 ${avgCrossShardRatio.toInt()}%로 높습니다. 데이터 모델링을 재검토하세요")
+        }
+        
+        if (avgDistributionBalance < 70.0) {
+            recommendations.add("데이터 분산 균형이 낮습니다. 샤드 키 선택을 재검토하고 리샤딩을 고려하세요")
+        }
+        
+        if (avgUtilizationVariance > 500.0) {
+            recommendations.add("샤드별 부하 편차가 큽니다. 동적 리밸런싱 메커니즘을 구현하세요")
+        }
+        
+        recommendations.add("정기적인 샤드 성능 모니터링으로 최적 분산 상태를 유지하세요")
+        recommendations.add("샤드 확장 시 일관성 해시 또는 디렉토리 기반 방식을 고려하세요")
+        
+        return recommendations
     }
 
     /**
@@ -495,6 +727,131 @@ data class ComprehensiveDistributedAnalysisResult(
     val overallAnalysis: OverallDistributedSystemAnalysis,
     val executionTimeMs: Long
 )
+
+// ================================
+// 데이터베이스 샤딩 지원 클래스들
+// ================================
+
+enum class ShardingType {
+    RANGE_BASED, HASH_BASED, DIRECTORY_BASED, CONSISTENT_HASH, COMPOSITE
+}
+
+enum class QueryType {
+    SELECT, INSERT, UPDATE, DELETE, JOIN
+}
+
+enum class QueryComplexity {
+    LOW, MEDIUM, HIGH
+}
+
+data class ShardingStrategy(
+    val name: String,
+    val type: ShardingType
+)
+
+data class DatabaseShard(
+    val id: String,
+    val partitionRange: String,
+    val capacity: Int,
+    var currentLoad: Int,
+    val averageQueryTimeMs: Double,
+    var isHealthy: Boolean = true
+)
+
+data class DatabaseQuery(
+    val id: String,
+    val type: QueryType,
+    val shardKey: String,
+    val affectedShards: Int,
+    val isJoinQuery: Boolean = false,
+    val estimatedComplexity: QueryComplexity = QueryComplexity.LOW
+)
+
+data class QueryRoutingResult(
+    val affectedShards: List<String>,
+    val success: Boolean,
+    val estimatedExecutionTimeMs: Long = kotlin.random.Random.nextLong(1, 100)
+)
+
+data class QueryResult(
+    val queryId: String,
+    val affectedShards: List<String>,
+    val executionTimeNanos: Long,
+    val success: Boolean,
+    val crossShardOperation: Boolean
+)
+
+// 샤딩 라우터 인터페이스 및 구현
+abstract class ShardingRouter(protected val shards: List<DatabaseShard>) {
+    abstract suspend fun routeQuery(query: DatabaseQuery): QueryRoutingResult
+    
+    protected fun selectShardByHash(shardKey: String): DatabaseShard {
+        val hash = shardKey.hashCode()
+        val shardIndex = Math.abs(hash) % shards.size
+        return shards[shardIndex]
+    }
+    
+    protected fun selectShardByRange(shardKey: String): DatabaseShard {
+        // 사용자 ID 기반 범위 분배 (user-1234 형태)
+        val userId = shardKey.substringAfter("-").toIntOrNull() ?: 0
+        return when {
+            userId < 2500 -> shards[0]
+            userId < 5000 -> shards[1]
+            userId < 7500 -> shards[2]
+            else -> shards[3]
+        }
+    }
+}
+
+class RangeBasedShardingRouter(shards: List<DatabaseShard>) : ShardingRouter(shards) {
+    override suspend fun routeQuery(query: DatabaseQuery): QueryRoutingResult {
+        val targetShard = selectShardByRange(query.shardKey)
+        
+        if (!targetShard.isHealthy) {
+            return QueryRoutingResult(emptyList(), false)
+        }
+        
+        val executionTime = (targetShard.averageQueryTimeMs * 
+            when (query.estimatedComplexity) {
+                QueryComplexity.LOW -> 1.0
+                QueryComplexity.MEDIUM -> 2.0
+                QueryComplexity.HIGH -> 4.0
+            }).toLong()
+        
+        delay(executionTime)
+        
+        return QueryRoutingResult(
+            affectedShards = listOf(targetShard.id),
+            success = true,
+            estimatedExecutionTimeMs = executionTime
+        )
+    }
+}
+
+class HashBasedShardingRouter(shards: List<DatabaseShard>) : ShardingRouter(shards) {
+    override suspend fun routeQuery(query: DatabaseQuery): QueryRoutingResult {
+        val targetShard = selectShardByHash(query.shardKey)
+        
+        if (!targetShard.isHealthy) {
+            return QueryRoutingResult(emptyList(), false)
+        }
+        
+        val executionTime = (targetShard.averageQueryTimeMs * 
+            when (query.estimatedComplexity) {
+                QueryComplexity.LOW -> 1.0
+                QueryComplexity.MEDIUM -> 2.0
+                QueryComplexity.HIGH -> 4.0
+            }).toLong()
+        
+        delay(executionTime)
+        
+        return QueryRoutingResult(
+            affectedShards = listOf(targetShard.id),
+            success = true,
+            estimatedExecutionTimeMs = executionTime
+        )
+    }
+}
 
 // ================================
 // 로드 밸런싱 지원 클래스들
