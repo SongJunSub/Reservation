@@ -63,17 +63,222 @@ class DistributedSystemPerformanceAnalyzer {
     }
 
     /**
-     * 1단계: 로드 밸런싱 전략 분석 (구현 예정)
+     * 1단계: 로드 밸런싱 전략 분석
      */
-    suspend fun analyzeLoadBalancing(): LoadBalancingAnalysisResult {
+    suspend fun analyzeLoadBalancing(): LoadBalancingAnalysisResult = withContext(Dispatchers.IO) {
         println("🔍 Phase 1: Load Balancing Strategy Analysis")
         
-        // TODO: 구현 예정
-        return LoadBalancingAnalysisResult(
-            strategies = emptyMap(),
-            analysis = LoadBalancingAnalysis("", "", ""),
-            recommendations = emptyList()
+        val strategies = listOf(
+            LoadBalancingStrategy("RoundRobin", LoadBalancingType.ROUND_ROBIN),
+            LoadBalancingStrategy("WeightedRoundRobin", LoadBalancingType.WEIGHTED_ROUND_ROBIN),
+            LoadBalancingStrategy("LeastConnections", LoadBalancingType.LEAST_CONNECTIONS),
+            LoadBalancingStrategy("LeastResponseTime", LoadBalancingType.LEAST_RESPONSE_TIME),
+            LoadBalancingStrategy("IPHash", LoadBalancingType.IP_HASH),
+            LoadBalancingStrategy("Random", LoadBalancingType.RANDOM)
         )
+        
+        val results = mutableMapOf<String, LoadBalancingMetrics>()
+        
+        for (strategy in strategies) {
+            println("📊 Testing ${strategy.name} load balancing strategy...")
+            results[strategy.name] = measureLoadBalancingPerformance(strategy)
+        }
+        
+        val analysis = analyzeLoadBalancingResults(results)
+        println("✅ Load balancing analysis completed")
+        
+        LoadBalancingAnalysisResult(
+            strategies = results,
+            analysis = analysis,
+            recommendations = generateLoadBalancingRecommendations(results)
+        )
+    }
+
+    private suspend fun measureLoadBalancingPerformance(strategy: LoadBalancingStrategy): LoadBalancingMetrics {
+        val serverNodes = createTestServerNodes(5) // 5개 서버 노드 시뮬레이션
+        val loadBalancer = createLoadBalancer(strategy, serverNodes)
+        
+        val requests = (1..1000).map { TestRequest(id = it, size = kotlin.random.Random.nextInt(1024, 8192)) }
+        val results = mutableListOf<RequestResult>()
+        
+        // 워밍업
+        repeat(100) {
+            loadBalancer.routeRequest(TestRequest(id = it, size = 1024))
+        }
+        
+        // 실제 측정
+        val startTime = System.currentTimeMillis()
+        
+        requests.asFlow()
+            .buffer(50) // 동시 요청 제한
+            .map { request ->
+                async {
+                    val requestStartTime = System.nanoTime()
+                    val result = loadBalancer.routeRequest(request)
+                    val requestEndTime = System.nanoTime()
+                    
+                    RequestResult(
+                        requestId = request.id,
+                        serverNode = result.serverNode,
+                        responseTimeNanos = requestEndTime - requestStartTime,
+                        success = result.success
+                    )
+                }
+            }
+            .buffer(100)
+            .collect { deferred ->
+                results.add(deferred.await())
+            }
+        
+        val endTime = System.currentTimeMillis()
+        val totalDurationMs = endTime - startTime
+        
+        return calculateLoadBalancingMetrics(results, totalDurationMs, serverNodes)
+    }
+
+    private fun createTestServerNodes(count: Int): List<ServerNode> {
+        return (1..count).map { nodeId ->
+            ServerNode(
+                id = "server-$nodeId",
+                weight = when (nodeId) {
+                    1 -> 1.0 // 낮은 성능 서버
+                    2, 3 -> 2.0 // 중간 성능 서버
+                    else -> 3.0 // 높은 성능 서버
+                },
+                capacity = nodeId * 100,
+                currentConnections = 0,
+                averageResponseTimeMs = when (nodeId) {
+                    1 -> 150.0
+                    2, 3 -> 100.0
+                    else -> 50.0
+                }
+            )
+        }
+    }
+
+    private fun createLoadBalancer(strategy: LoadBalancingStrategy, nodes: List<ServerNode>): LoadBalancer {
+        return when (strategy.type) {
+            LoadBalancingType.ROUND_ROBIN -> RoundRobinLoadBalancer(nodes)
+            LoadBalancingType.WEIGHTED_ROUND_ROBIN -> WeightedRoundRobinLoadBalancer(nodes)
+            LoadBalancingType.LEAST_CONNECTIONS -> LeastConnectionsLoadBalancer(nodes)
+            LoadBalancingType.LEAST_RESPONSE_TIME -> LeastResponseTimeLoadBalancer(nodes)
+            LoadBalancingType.IP_HASH -> IPHashLoadBalancer(nodes)
+            LoadBalancingType.RANDOM -> RandomLoadBalancer(nodes)
+        }
+    }
+
+    private fun calculateLoadBalancingMetrics(
+        results: List<RequestResult>,
+        totalDurationMs: Long,
+        serverNodes: List<ServerNode>
+    ): LoadBalancingMetrics {
+        val successfulResults = results.filter { it.success }
+        val responseTimes = successfulResults.map { it.responseTimeNanos / 1_000_000.0 } // ms로 변환
+        
+        // 서버별 요청 분배 분석
+        val serverDistribution = results.groupBy { it.serverNode }.mapValues { it.value.size }
+        val idealDistribution = results.size.toDouble() / serverNodes.size
+        val distributionVariance = serverDistribution.values.map { 
+            (it - idealDistribution).pow(2) 
+        }.average()
+        val distributionEfficiency = 100.0 - (distributionVariance / idealDistribution * 100).coerceAtMost(100.0)
+        
+        return LoadBalancingMetrics(
+            throughputRps = successfulResults.size.toDouble() / (totalDurationMs / 1000.0),
+            averageLatencyMs = responseTimes.average(),
+            distributionEfficiency = distributionEfficiency,
+            failoverTimeMs = measureFailoverTime(serverNodes),
+            healthCheckLatencyMs = measureHealthCheckLatency(serverNodes)
+        )
+    }
+
+    private fun measureFailoverTime(serverNodes: List<ServerNode>): Long {
+        // 서버 장애 시뮬레이션 및 failover 시간 측정
+        val startTime = System.nanoTime()
+        
+        // 첫 번째 서버 장애 시뮬레이션
+        val failedNode = serverNodes.first()
+        failedNode.isHealthy = false
+        
+        // 새로운 요청이 다른 서버로 라우팅되는 시간 측정
+        val testRequest = TestRequest(id = 9999, size = 1024)
+        val loadBalancer = RoundRobinLoadBalancer(serverNodes.filter { it.isHealthy })
+        loadBalancer.routeRequest(testRequest)
+        
+        val endTime = System.nanoTime()
+        
+        // 서버 복구
+        failedNode.isHealthy = true
+        
+        return (endTime - startTime) / 1_000_000 // ms로 변환
+    }
+
+    private fun measureHealthCheckLatency(serverNodes: List<ServerNode>): Double {
+        val healthCheckTimes = serverNodes.map {
+            val startTime = System.nanoTime()
+            val isHealthy = performHealthCheck(it)
+            val endTime = System.nanoTime()
+            (endTime - startTime) / 1_000_000.0 // ms로 변환
+        }
+        
+        return healthCheckTimes.average()
+    }
+
+    private fun performHealthCheck(node: ServerNode): Boolean {
+        // 헬스체크 시뮬레이션 (실제로는 HTTP 요청이나 TCP 연결 확인)
+        Thread.sleep(kotlin.random.Random.nextLong(1, 10)) // 1-10ms 시뮬레이션
+        return node.isHealthy
+    }
+
+    private fun analyzeLoadBalancingResults(results: Map<String, LoadBalancingMetrics>): LoadBalancingAnalysis {
+        val bestThroughput = results.maxByOrNull { it.value.throughputRps }
+        val bestLatency = results.minByOrNull { it.value.averageLatencyMs }
+        val bestDistribution = results.maxByOrNull { it.value.distributionEfficiency }
+        
+        val overallScore = results.mapValues { (_, metrics) ->
+            val throughputScore = metrics.throughputRps / results.values.maxOf { it.throughputRps }
+            val latencyScore = 1.0 - (metrics.averageLatencyMs / results.values.maxOf { it.averageLatencyMs })
+            val distributionScore = metrics.distributionEfficiency / 100.0
+            
+            (throughputScore * 0.4 + latencyScore * 0.3 + distributionScore * 0.3)
+        }
+        
+        val bestOverall = overallScore.maxByOrNull { it.value }
+        
+        return LoadBalancingAnalysis(
+            bestStrategy = bestOverall?.key ?: "WeightedRoundRobin",
+            worstStrategy = overallScore.minByOrNull { it.value }?.key ?: "Random",
+            overallRecommendation = when (bestOverall?.key) {
+                "WeightedRoundRobin" -> "서버 성능 차이가 있는 환경에서는 가중 라운드로빈이 최적입니다"
+                "LeastConnections" -> "연결 수 기반 분산이 현재 워크로드에 가장 적합합니다"
+                "LeastResponseTime" -> "응답시간 기반 분산으로 최적의 사용자 경험을 제공합니다"
+                else -> "현재 환경에서는 ${bestOverall?.key} 전략이 가장 효과적입니다"
+            }
+        )
+    }
+
+    private fun generateLoadBalancingRecommendations(results: Map<String, LoadBalancingMetrics>): List<String> {
+        val recommendations = mutableListOf<String>()
+        
+        val avgThroughput = results.values.map { it.throughputRps }.average()
+        val avgLatency = results.values.map { it.averageLatencyMs }.average()
+        val avgDistribution = results.values.map { it.distributionEfficiency }.average()
+        
+        if (avgDistribution < 80.0) {
+            recommendations.add("서버 간 요청 분배가 불균등합니다. 가중치 기반 로드 밸런싱을 고려하세요")
+        }
+        
+        if (avgLatency > 100.0) {
+            recommendations.add("평균 지연시간이 높습니다. 응답시간 기반 로드 밸런싱을 활용하세요")
+        }
+        
+        if (results.values.any { it.failoverTimeMs > 1000 }) {
+            recommendations.add("장애 복구 시간이 깁니다. 헬스체크 주기를 단축하고 빠른 장애 감지를 구현하세요")
+        }
+        
+        recommendations.add("정기적인 로드 밸런싱 성능 모니터링으로 최적 전략을 유지하세요")
+        
+        return recommendations
     }
 
     /**
@@ -290,3 +495,187 @@ data class ComprehensiveDistributedAnalysisResult(
     val overallAnalysis: OverallDistributedSystemAnalysis,
     val executionTimeMs: Long
 )
+
+// ================================
+// 로드 밸런싱 지원 클래스들
+// ================================
+
+enum class LoadBalancingType {
+    ROUND_ROBIN, WEIGHTED_ROUND_ROBIN, LEAST_CONNECTIONS, 
+    LEAST_RESPONSE_TIME, IP_HASH, RANDOM
+}
+
+data class LoadBalancingStrategy(
+    val name: String,
+    val type: LoadBalancingType
+)
+
+data class ServerNode(
+    val id: String,
+    val weight: Double,
+    val capacity: Int,
+    var currentConnections: Int,
+    val averageResponseTimeMs: Double,
+    var isHealthy: Boolean = true
+)
+
+data class TestRequest(
+    val id: Int,
+    val size: Int,
+    val clientIP: String = "192.168.1.${kotlin.random.Random.nextInt(1, 255)}"
+)
+
+data class RoutingResult(
+    val serverNode: String,
+    val success: Boolean,
+    val responseTimeMs: Long = kotlin.random.Random.nextLong(10, 200)
+)
+
+data class RequestResult(
+    val requestId: Int,
+    val serverNode: String,
+    val responseTimeNanos: Long,
+    val success: Boolean
+)
+
+// 로드 밸런서 인터페이스 및 구현
+abstract class LoadBalancer(protected val nodes: List<ServerNode>) {
+    abstract suspend fun routeRequest(request: TestRequest): RoutingResult
+}
+
+class RoundRobinLoadBalancer(nodes: List<ServerNode>) : LoadBalancer(nodes) {
+    private var currentIndex = 0
+    
+    override suspend fun routeRequest(request: TestRequest): RoutingResult {
+        val healthyNodes = nodes.filter { it.isHealthy }
+        if (healthyNodes.isEmpty()) {
+            return RoutingResult("", false)
+        }
+        
+        val selectedNode = healthyNodes[currentIndex % healthyNodes.size]
+        currentIndex = (currentIndex + 1) % healthyNodes.size
+        
+        // 요청 처리 시뮬레이션
+        delay(selectedNode.averageResponseTimeMs.toLong())
+        
+        return RoutingResult(
+            serverNode = selectedNode.id,
+            success = true,
+            responseTimeMs = selectedNode.averageResponseTimeMs.toLong()
+        )
+    }
+}
+
+class WeightedRoundRobinLoadBalancer(nodes: List<ServerNode>) : LoadBalancer(nodes) {
+    private val weightedNodes = mutableListOf<ServerNode>()
+    
+    init {
+        // 가중치에 따라 노드 복제
+        nodes.forEach { node ->
+            repeat(node.weight.toInt()) {
+                weightedNodes.add(node)
+            }
+        }
+    }
+    
+    private var currentIndex = 0
+    
+    override suspend fun routeRequest(request: TestRequest): RoutingResult {
+        val healthyWeightedNodes = weightedNodes.filter { it.isHealthy }
+        if (healthyWeightedNodes.isEmpty()) {
+            return RoutingResult("", false)
+        }
+        
+        val selectedNode = healthyWeightedNodes[currentIndex % healthyWeightedNodes.size]
+        currentIndex = (currentIndex + 1) % healthyWeightedNodes.size
+        
+        delay(selectedNode.averageResponseTimeMs.toLong())
+        
+        return RoutingResult(
+            serverNode = selectedNode.id,
+            success = true,
+            responseTimeMs = selectedNode.averageResponseTimeMs.toLong()
+        )
+    }
+}
+
+class LeastConnectionsLoadBalancer(nodes: List<ServerNode>) : LoadBalancer(nodes) {
+    override suspend fun routeRequest(request: TestRequest): RoutingResult {
+        val healthyNodes = nodes.filter { it.isHealthy }
+        if (healthyNodes.isEmpty()) {
+            return RoutingResult("", false)
+        }
+        
+        val selectedNode = healthyNodes.minByOrNull { it.currentConnections }!!
+        selectedNode.currentConnections++
+        
+        delay(selectedNode.averageResponseTimeMs.toLong())
+        
+        // 요청 완료 후 연결 수 감소
+        selectedNode.currentConnections = maxOf(0, selectedNode.currentConnections - 1)
+        
+        return RoutingResult(
+            serverNode = selectedNode.id,
+            success = true,
+            responseTimeMs = selectedNode.averageResponseTimeMs.toLong()
+        )
+    }
+}
+
+class LeastResponseTimeLoadBalancer(nodes: List<ServerNode>) : LoadBalancer(nodes) {
+    override suspend fun routeRequest(request: TestRequest): RoutingResult {
+        val healthyNodes = nodes.filter { it.isHealthy }
+        if (healthyNodes.isEmpty()) {
+            return RoutingResult("", false)
+        }
+        
+        val selectedNode = healthyNodes.minByOrNull { it.averageResponseTimeMs }!!
+        
+        delay(selectedNode.averageResponseTimeMs.toLong())
+        
+        return RoutingResult(
+            serverNode = selectedNode.id,
+            success = true,
+            responseTimeMs = selectedNode.averageResponseTimeMs.toLong()
+        )
+    }
+}
+
+class IPHashLoadBalancer(nodes: List<ServerNode>) : LoadBalancer(nodes) {
+    override suspend fun routeRequest(request: TestRequest): RoutingResult {
+        val healthyNodes = nodes.filter { it.isHealthy }
+        if (healthyNodes.isEmpty()) {
+            return RoutingResult("", false)
+        }
+        
+        val hash = request.clientIP.hashCode()
+        val selectedNode = healthyNodes[Math.abs(hash) % healthyNodes.size]
+        
+        delay(selectedNode.averageResponseTimeMs.toLong())
+        
+        return RoutingResult(
+            serverNode = selectedNode.id,
+            success = true,
+            responseTimeMs = selectedNode.averageResponseTimeMs.toLong()
+        )
+    }
+}
+
+class RandomLoadBalancer(nodes: List<ServerNode>) : LoadBalancer(nodes) {
+    override suspend fun routeRequest(request: TestRequest): RoutingResult {
+        val healthyNodes = nodes.filter { it.isHealthy }
+        if (healthyNodes.isEmpty()) {
+            return RoutingResult("", false)
+        }
+        
+        val selectedNode = healthyNodes.random()
+        
+        delay(selectedNode.averageResponseTimeMs.toLong())
+        
+        return RoutingResult(
+            serverNode = selectedNode.id,
+            success = true,
+            responseTimeMs = selectedNode.averageResponseTimeMs.toLong()
+        )
+    }
+}
