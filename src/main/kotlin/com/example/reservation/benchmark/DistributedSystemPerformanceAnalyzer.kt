@@ -795,17 +795,267 @@ class DistributedSystemPerformanceAnalyzer {
     }
 
     /**
-     * 4단계: 마이크로서비스 통신 성능 분석 (구현 예정)
+     * 4단계: 마이크로서비스 통신 성능 분석
      */
-    suspend fun analyzeMicroserviceCommunication(): MicroserviceCommunicationAnalysisResult {
+    suspend fun analyzeMicroserviceCommunication(): MicroserviceCommunicationAnalysisResult = withContext(Dispatchers.IO) {
         println("🔍 Phase 4: Microservice Communication Performance Analysis")
         
-        // TODO: 구현 예정
-        return MicroserviceCommunicationAnalysisResult(
-            communicationPatterns = emptyMap(),
-            analysis = MicroserviceCommunicationAnalysis("", "", ""),
-            recommendations = emptyList()
+        val communicationPatterns = listOf(
+            CommunicationPattern("HTTPSynchronous", CommunicationType.HTTP_SYNC),
+            CommunicationPattern("HTTPAsynchronous", CommunicationType.HTTP_ASYNC),
+            CommunicationPattern("gRPCUnary", CommunicationType.GRPC_UNARY),
+            CommunicationPattern("gRPCStreaming", CommunicationType.GRPC_STREAMING),
+            CommunicationPattern("MessageQueue", CommunicationType.MESSAGE_QUEUE),
+            CommunicationPattern("EventStreaming", CommunicationType.EVENT_STREAMING)
         )
+        
+        val results = mutableMapOf<String, MicroserviceCommunicationMetrics>()
+        
+        for (pattern in communicationPatterns) {
+            println("📊 Testing ${pattern.name} communication pattern...")
+            results[pattern.name] = measureCommunicationPerformance(pattern)
+        }
+        
+        val analysis = analyzeCommunicationResults(results)
+        println("✅ Microservice communication analysis completed")
+        
+        MicroserviceCommunicationAnalysisResult(
+            communicationPatterns = results,
+            analysis = analysis,
+            recommendations = generateCommunicationRecommendations(results)
+        )
+    }
+
+    private suspend fun measureCommunicationPerformance(pattern: CommunicationPattern): MicroserviceCommunicationMetrics {
+        val microservices = createTestMicroservices(5) // 5개 마이크로서비스
+        val communicationManager = createCommunicationManager(pattern, microservices)
+        
+        val requests = generateMicroserviceRequests(3000)
+        val results = mutableListOf<CommunicationResult>()
+        
+        // 서비스 디스커버리 워밍업
+        repeat(100) {
+            val service = microservices.random()
+            communicationManager.discoverService(service.name)
+        }
+        
+        // 실제 측정
+        val startTime = System.currentTimeMillis()
+        
+        requests.asFlow()
+            .buffer(150) // 동시 요청 제한
+            .map { request ->
+                async {
+                    val requestStartTime = System.nanoTime()
+                    val discoveryStartTime = System.nanoTime()
+                    
+                    // 서비스 디스커버리
+                    val targetService = communicationManager.discoverService(request.targetService)
+                    val discoveryEndTime = System.nanoTime()
+                    
+                    // 실제 통신
+                    val communicationStartTime = System.nanoTime()
+                    val result = communicationManager.sendRequest(request, targetService)
+                    val communicationEndTime = System.nanoTime()
+                    
+                    val requestEndTime = System.nanoTime()
+                    
+                    CommunicationResult(
+                        requestId = request.id,
+                        targetService = request.targetService,
+                        success = result.success,
+                        totalLatencyNanos = requestEndTime - requestStartTime,
+                        serviceDiscoveryLatencyNanos = discoveryEndTime - discoveryStartTime,
+                        communicationLatencyNanos = communicationEndTime - communicationStartTime,
+                        circuitBreakerTriggered = result.circuitBreakerTriggered,
+                        retryCount = result.retryCount
+                    )
+                }
+            }
+            .buffer(200)
+            .collect { deferred ->
+                results.add(deferred.await())
+            }
+        
+        val endTime = System.currentTimeMillis()
+        val totalDurationMs = endTime - startTime
+        
+        return calculateCommunicationMetrics(results, totalDurationMs, microservices)
+    }
+
+    private fun createTestMicroservices(count: Int): List<Microservice> {
+        val serviceTypes = listOf("user-service", "order-service", "payment-service", "inventory-service", "notification-service")
+        
+        return (1..count).map { serviceId ->
+            val serviceType = serviceTypes[(serviceId - 1) % serviceTypes.size]
+            
+            Microservice(
+                id = "service-$serviceId",
+                name = "$serviceType-$serviceId",
+                host = "192.168.1.$serviceId",
+                port = 8080 + serviceId,
+                healthEndpoint = "/actuator/health",
+                averageResponseTimeMs = kotlin.random.Random.nextDouble(10.0, 200.0),
+                errorRate = kotlin.random.Random.nextDouble(0.0, 0.05), // 0-5% 에러율
+                isHealthy = true,
+                currentLoad = kotlin.random.Random.nextInt(10, 90),
+                circuitBreakerState = CircuitBreakerState.CLOSED
+            )
+        }
+    }
+
+    private fun createCommunicationManager(
+        pattern: CommunicationPattern, 
+        services: List<Microservice>
+    ): CommunicationManager {
+        return when (pattern.type) {
+            CommunicationType.HTTP_SYNC -> HTTPSyncCommunicationManager(services)
+            CommunicationType.HTTP_ASYNC -> HTTPAsyncCommunicationManager(services)
+            CommunicationType.GRPC_UNARY -> GRPCUnaryCommunicationManager(services)
+            CommunicationType.GRPC_STREAMING -> GRPCStreamingCommunicationManager(services)
+            CommunicationType.MESSAGE_QUEUE -> MessageQueueCommunicationManager(services)
+            CommunicationType.EVENT_STREAMING -> EventStreamingCommunicationManager(services)
+        }
+    }
+
+    private fun generateMicroserviceRequests(count: Int): List<MicroserviceRequest> {
+        val services = listOf("user-service", "order-service", "payment-service", "inventory-service", "notification-service")
+        
+        return (1..count).map { requestId ->
+            val requestType = MicroserviceRequestType.values().random()
+            val payloadSize = when (requestType) {
+                MicroserviceRequestType.QUERY -> kotlin.random.Random.nextInt(100, 1000) // 작은 쿼리
+                MicroserviceRequestType.COMMAND -> kotlin.random.Random.nextInt(500, 5000) // 중간 크기 명령
+                MicroserviceRequestType.BATCH -> kotlin.random.Random.nextInt(5000, 50000) // 큰 배치 작업
+                MicroserviceRequestType.STREAMING -> kotlin.random.Random.nextInt(1000, 10000) // 스트리밍 데이터
+            }
+            
+            MicroserviceRequest(
+                id = "req-$requestId",
+                targetService = services.random(),
+                requestType = requestType,
+                payloadSize = payloadSize,
+                expectedResponseTime = when (requestType) {
+                    MicroserviceRequestType.QUERY -> kotlin.random.Random.nextLong(10, 100)
+                    MicroserviceRequestType.COMMAND -> kotlin.random.Random.nextLong(50, 500)
+                    MicroserviceRequestType.BATCH -> kotlin.random.Random.nextLong(500, 5000)
+                    MicroserviceRequestType.STREAMING -> kotlin.random.Random.nextLong(100, 1000)
+                },
+                requiresAuth = kotlin.random.Random.nextBoolean(),
+                priority = RequestPriority.values().random()
+            )
+        }
+    }
+
+    private fun calculateCommunicationMetrics(
+        results: List<CommunicationResult>,
+        totalDurationMs: Long,
+        microservices: List<Microservice>
+    ): MicroserviceCommunicationMetrics {
+        val successfulResults = results.filter { it.success }
+        val failedResults = results.filter { !it.success }
+        
+        val totalLatencies = successfulResults.map { it.totalLatencyNanos / 1_000_000.0 } // ms
+        val serviceDiscoveryLatencies = results.map { it.serviceDiscoveryLatencyNanos / 1_000_000.0 } // ms
+        val communicationLatencies = successfulResults.map { it.communicationLatencyNanos / 1_000_000.0 } // ms
+        
+        val circuitBreakerTriggers = results.count { it.circuitBreakerTriggered }
+        val totalRetries = results.sumOf { it.retryCount }
+        
+        return MicroserviceCommunicationMetrics(
+            requestThroughputRps = successfulResults.size.toDouble() / (totalDurationMs / 1000.0),
+            averageLatencyMs = totalLatencies.average(),
+            errorRate = (failedResults.size.toDouble() / results.size) * 100,
+            circuitBreakerTriggerRate = (circuitBreakerTriggers.toDouble() / results.size) * 100,
+            serviceDiscoveryLatencyMs = serviceDiscoveryLatencies.average(),
+            averageRetryCount = if (results.isNotEmpty()) totalRetries.toDouble() / results.size else 0.0,
+            p95LatencyMs = if (totalLatencies.isNotEmpty()) {
+                totalLatencies.sorted()[(totalLatencies.size * 0.95).toInt()]
+            } else 0.0,
+            p99LatencyMs = if (totalLatencies.isNotEmpty()) {
+                totalLatencies.sorted()[(totalLatencies.size * 0.99).toInt()]
+            } else 0.0
+        )
+    }
+
+    private fun analyzeCommunicationResults(results: Map<String, MicroserviceCommunicationMetrics>): MicroserviceCommunicationAnalysis {
+        val bestThroughput = results.maxByOrNull { it.value.requestThroughputRps }
+        val bestLatency = results.minByOrNull { it.value.averageLatencyMs }
+        val lowestErrorRate = results.minByOrNull { it.value.errorRate }
+        val bestReliability = results.minByOrNull { it.value.circuitBreakerTriggerRate }
+        
+        // 종합 점수 계산
+        val overallScores = results.mapValues { (_, metrics) ->
+            val throughputScore = metrics.requestThroughputRps / results.values.maxOf { it.requestThroughputRps }
+            val latencyScore = 1.0 - (metrics.averageLatencyMs / results.values.maxOf { it.averageLatencyMs })
+            val errorScore = 1.0 - (metrics.errorRate / 100.0)
+            val reliabilityScore = 1.0 - (metrics.circuitBreakerTriggerRate / 100.0)
+            val discoveryScore = 1.0 - (metrics.serviceDiscoveryLatencyMs / results.values.maxOf { it.serviceDiscoveryLatencyMs })
+            
+            (throughputScore * 0.25 + latencyScore * 0.25 + errorScore * 0.2 + 
+             reliabilityScore * 0.2 + discoveryScore * 0.1)
+        }
+        
+        val bestOverall = overallScores.maxByOrNull { it.value }
+        
+        // 신뢰성 평가
+        val avgErrorRate = results.values.map { it.errorRate }.average()
+        val avgCircuitBreakerRate = results.values.map { it.circuitBreakerTriggerRate }.average()
+        
+        val reliabilityAssessment = when {
+            avgErrorRate < 1.0 && avgCircuitBreakerRate < 2.0 -> "Excellent - 매우 안정적인 통신"
+            avgErrorRate < 3.0 && avgCircuitBreakerRate < 5.0 -> "Good - 안정적인 통신"
+            avgErrorRate < 5.0 && avgCircuitBreakerRate < 10.0 -> "Fair - 일부 안정성 문제"
+            else -> "Poor - 심각한 안정성 문제"
+        }
+        
+        return MicroserviceCommunicationAnalysis(
+            bestCommunicationPattern = bestOverall?.key ?: "gRPCUnary",
+            reliabilityAssessment = reliabilityAssessment,
+            overallRecommendation = when (bestOverall?.key) {
+                "gRPCUnary" -> "높은 성능과 타입 안정성이 필요한 서비스 간 통신에 최적"
+                "gRPCStreaming" -> "실시간 데이터 스트리밍이나 대용량 데이터 전송에 적합"
+                "HTTPAsynchronous" -> "논블로킹 처리가 중요한 고부하 환경에 효과적"
+                "MessageQueue" -> "비동기 처리와 내결함성이 중요한 시스템에 적합"
+                "EventStreaming" -> "이벤트 기반 아키텍처와 실시간 처리에 최적"
+                else -> "현재 워크로드에는 ${bestOverall?.key} 패턴이 가장 효과적"
+            }
+        )
+    }
+
+    private fun generateCommunicationRecommendations(results: Map<String, MicroserviceCommunicationMetrics>): List<String> {
+        val recommendations = mutableListOf<String>()
+        
+        val avgLatency = results.values.map { it.averageLatencyMs }.average()
+        val avgErrorRate = results.values.map { it.errorRate }.average()
+        val avgCircuitBreakerRate = results.values.map { it.circuitBreakerTriggerRate }.average()
+        val avgServiceDiscoveryLatency = results.values.map { it.serviceDiscoveryLatencyMs }.average()
+        val avgRetryCount = results.values.map { it.averageRetryCount }.average()
+        
+        if (avgLatency > 100.0) {
+            recommendations.add("평균 응답시간이 ${avgLatency.toInt()}ms로 높습니다. 네트워크 최적화나 캐싱을 고려하세요")
+        }
+        
+        if (avgErrorRate > 2.0) {
+            recommendations.add("에러율이 ${avgErrorRate.toInt()}%로 높습니다. 재시도 정책과 회로 차단기 설정을 검토하세요")
+        }
+        
+        if (avgCircuitBreakerRate > 5.0) {
+            recommendations.add("회로 차단기 발동률이 높습니다. 서비스 안정성과 타임아웃 설정을 점검하세요")
+        }
+        
+        if (avgServiceDiscoveryLatency > 10.0) {
+            recommendations.add("서비스 디스커버리 지연시간이 높습니다. 캐싱이나 로컬 레지스트리를 활용하세요")
+        }
+        
+        if (avgRetryCount > 1.5) {
+            recommendations.add("재시도 횟수가 많습니다. 백오프 전략과 재시도 한계를 조정하세요")
+        }
+        
+        recommendations.add("마이크로서비스 간 통신 모니터링을 강화하여 병목지점을 식별하세요")
+        recommendations.add("비즈니스 중요도에 따른 SLA 정의 및 우선순위 기반 라우팅을 구현하세요")
+        
+        return recommendations
     }
 
     /**
