@@ -1064,11 +1064,28 @@ class DistributedSystemPerformanceAnalyzer {
     suspend fun analyzeSystemResilience(): SystemResilienceAnalysisResult {
         println("🔍 Phase 5: System Resilience Analysis")
         
-        // TODO: 구현 예정
+        val scenarios = listOf(
+            ResilienceScenario("ServiceFailure", "서비스 장애 시나리오", FailureType.SERVICE_UNAVAILABLE),
+            ResilienceScenario("DatabaseFailure", "데이터베이스 연결 실패", FailureType.DATABASE_CONNECTION),
+            ResilienceScenario("NetworkPartition", "네트워크 분할", FailureType.NETWORK_PARTITION),
+            ResilienceScenario("MemoryPressure", "메모리 부족", FailureType.RESOURCE_EXHAUSTION),
+            ResilienceScenario("CascadingFailure", "연쇄 장애", FailureType.CASCADING_FAILURE)
+        )
+        
+        val results = mutableMapOf<String, ResilienceMetrics>()
+        
+        for (scenario in scenarios) {
+            println("📊 Testing ${scenario.name} resilience scenario...")
+            results[scenario.name] = measureResilienceMetrics(scenario)
+        }
+        
+        val analysis = analyzeResilienceResults(results)
+        println("✅ System resilience analysis completed")
+        
         return SystemResilienceAnalysisResult(
-            resilienceMetrics = emptyMap(),
-            analysis = SystemResilienceAnalysis("", "", ""),
-            recommendations = emptyList()
+            resilienceMetrics = results,
+            analysis = analysis,
+            recommendations = generateResilienceRecommendations(results)
         )
     }
 
@@ -1101,6 +1118,251 @@ class DistributedSystemPerformanceAnalyzer {
                 "분산 캐시 일관성 보장"
             )
         )
+    }
+
+    // 시스템 복원력 분석 지원 메서드들
+    private suspend fun measureResilienceMetrics(scenario: ResilienceScenario): ResilienceMetrics {
+        val startTime = System.nanoTime()
+        
+        // 시나리오별 장애 시뮬레이션
+        val results = mutableListOf<ResilienceTestResult>()
+        
+        repeat(100) { iteration ->
+            val testResult = simulateFailureScenario(scenario, iteration)
+            results.add(testResult)
+        }
+        
+        val endTime = System.nanoTime()
+        val totalDurationMs = (endTime - startTime) / 1_000_000
+        
+        return calculateResilienceMetrics(results, totalDurationMs, scenario)
+    }
+    
+    private fun simulateFailureScenario(scenario: ResilienceScenario, iteration: Int): ResilienceTestResult {
+        val operationStartTime = System.nanoTime()
+        
+        val result = when (scenario.failureType) {
+            FailureType.SERVICE_UNAVAILABLE -> {
+                // 서비스 가용성 장애 시뮬레이션
+                val isServiceDown = kotlin.random.Random.nextDouble() < 0.2 // 20% 장애율
+                ResilienceTestResult(
+                    testId = "${scenario.name}-$iteration",
+                    operationType = "service_call",
+                    success = !isServiceDown,
+                    executionTimeMs = if (isServiceDown) 5000 else kotlin.random.Random.nextDouble(50.0, 200.0),
+                    errorType = if (isServiceDown) "SERVICE_TIMEOUT" else null,
+                    retryCount = if (isServiceDown) 3 else 0,
+                    circuitBreakerTriggered = isServiceDown
+                )
+            }
+            FailureType.DATABASE_CONNECTION -> {
+                // 데이터베이스 연결 장애 시뮬레이션
+                val connectionFails = kotlin.random.Random.nextDouble() < 0.15 // 15% 연결 실패
+                ResilienceTestResult(
+                    testId = "${scenario.name}-$iteration",
+                    operationType = "database_query",
+                    success = !connectionFails,
+                    executionTimeMs = if (connectionFails) 3000 else kotlin.random.Random.nextDouble(10.0, 100.0),
+                    errorType = if (connectionFails) "CONNECTION_TIMEOUT" else null,
+                    retryCount = if (connectionFails) 2 else 0,
+                    circuitBreakerTriggered = false
+                )
+            }
+            FailureType.NETWORK_PARTITION -> {
+                // 네트워크 분할 시뮬레이션
+                val partitionOccurs = kotlin.random.Random.nextDouble() < 0.1 // 10% 분할 확률
+                ResilienceTestResult(
+                    testId = "${scenario.name}-$iteration",
+                    operationType = "network_call",
+                    success = !partitionOccurs,
+                    executionTimeMs = if (partitionOccurs) 10000 else kotlin.random.Random.nextDouble(100.0, 500.0),
+                    errorType = if (partitionOccurs) "NETWORK_PARTITION" else null,
+                    retryCount = if (partitionOccurs) 5 else 0,
+                    circuitBreakerTriggered = partitionOccurs
+                )
+            }
+            FailureType.RESOURCE_EXHAUSTION -> {
+                // 리소스 고갈 시뮬레이션
+                val resourceExhausted = kotlin.random.Random.nextDouble() < 0.25 // 25% 리소스 부족
+                ResilienceTestResult(
+                    testId = "${scenario.name}-$iteration",
+                    operationType = "resource_allocation",
+                    success = !resourceExhausted,
+                    executionTimeMs = if (resourceExhausted) 2000 else kotlin.random.Random.nextDouble(20.0, 150.0),
+                    errorType = if (resourceExhausted) "OUT_OF_MEMORY" else null,
+                    retryCount = if (resourceExhausted) 1 else 0,
+                    circuitBreakerTriggered = false
+                )
+            }
+            FailureType.CASCADING_FAILURE -> {
+                // 연쇄 장애 시뮬레이션
+                val cascadeFailure = kotlin.random.Random.nextDouble() < 0.08 // 8% 연쇄 장애
+                ResilienceTestResult(
+                    testId = "${scenario.name}-$iteration",
+                    operationType = "cascading_call",
+                    success = !cascadeFailure,
+                    executionTimeMs = if (cascadeFailure) 8000 else kotlin.random.Random.nextDouble(80.0, 300.0),
+                    errorType = if (cascadeFailure) "CASCADING_FAILURE" else null,
+                    retryCount = if (cascadeFailure) 4 else 0,
+                    circuitBreakerTriggered = cascadeFailure
+                )
+            }
+        }
+        
+        val operationEndTime = System.nanoTime()
+        return result.copy(executionTimeMs = (operationEndTime - operationStartTime) / 1_000_000.0)
+    }
+    
+    private fun calculateResilienceMetrics(
+        results: List<ResilienceTestResult>,
+        totalDurationMs: Long,
+        scenario: ResilienceScenario
+    ): ResilienceMetrics {
+        val successRate = (results.count { it.success }.toDouble() / results.size) * 100
+        val averageLatency = results.map { it.executionTimeMs }.average()
+        val totalRetries = results.sumOf { it.retryCount }
+        val circuitBreakerTriggers = results.count { it.circuitBreakerTriggered }
+        
+        val mttr = calculateMeanTimeToRecovery(results)  // 평균 복구 시간
+        val mtbf = calculateMeanTimeBetweenFailures(results)  // 평균 장애 간격
+        val availability = calculateAvailability(successRate, mttr, mtbf)
+        
+        return ResilienceMetrics(
+            scenarioName = scenario.name,
+            successRate = successRate,
+            averageLatencyMs = averageLatency,
+            totalRetries = totalRetries,
+            circuitBreakerTriggers = circuitBreakerTriggers,
+            meanTimeToRecoveryMs = mttr,
+            meanTimeBetweenFailuresMs = mtbf,
+            availabilityPercentage = availability,
+            resilienceScore = calculateResilienceScore(successRate, mttr, availability)
+        )
+    }
+    
+    private fun calculateMeanTimeToRecovery(results: List<ResilienceTestResult>): Double {
+        val failureResults = results.filter { !it.success }
+        return if (failureResults.isNotEmpty()) {
+            failureResults.map { it.executionTimeMs }.average()
+        } else {
+            0.0
+        }
+    }
+    
+    private fun calculateMeanTimeBetweenFailures(results: List<ResilienceTestResult>): Double {
+        val failures = results.withIndex().filter { !it.value.success }
+        if (failures.size <= 1) return Double.MAX_VALUE
+        
+        val intervals = mutableListOf<Int>()
+        for (i in 1 until failures.size) {
+            intervals.add(failures[i].index - failures[i-1].index)
+        }
+        
+        return intervals.average() * 100.0 // 가정: 각 테스트는 100ms 간격
+    }
+    
+    private fun calculateAvailability(successRate: Double, mttr: Double, mtbf: Double): Double {
+        return if (mttr > 0 && mtbf > 0) {
+            (mtbf / (mtbf + mttr)) * 100
+        } else {
+            successRate
+        }
+    }
+    
+    private fun calculateResilienceScore(successRate: Double, mttr: Double, availability: Double): Double {
+        val successWeight = 0.4
+        val recoveryWeight = 0.3  // 낮은 MTTR이 좋음
+        val availabilityWeight = 0.3
+        
+        val recoveryScore = if (mttr > 0) {
+            (1.0 - (mttr / 10000.0)).coerceIn(0.0, 1.0) * 100
+        } else {
+            100.0
+        }
+        
+        return (successRate * successWeight + recoveryScore * recoveryWeight + availability * availabilityWeight)
+            .coerceIn(0.0, 100.0)
+    }
+    
+    private fun analyzeResilienceResults(results: Map<String, ResilienceMetrics>): SystemResilienceAnalysis {
+        val bestScenario = results.maxByOrNull { it.value.resilienceScore }
+        val worstScenario = results.minByOrNull { it.value.resilienceScore }
+        val avgScore = results.values.map { it.resilienceScore }.average()
+        
+        val overallGrade = when {
+            avgScore >= 90 -> "A+ (Excellent)"
+            avgScore >= 80 -> "A (Very Good)"
+            avgScore >= 70 -> "B (Good)"
+            avgScore >= 60 -> "C (Acceptable)"
+            else -> "D (Needs Improvement)"
+        }
+        
+        val keyInsights = buildList {
+            add("평균 복원력 점수: ${String.format("%.1f", avgScore)} ($overallGrade)")
+            bestScenario?.let { 
+                add("최고 성능 시나리오: ${it.key} (${String.format("%.1f", it.value.resilienceScore)}점)")
+            }
+            worstScenario?.let {
+                add("개선 필요 시나리오: ${it.key} (${String.format("%.1f", it.value.resilienceScore)}점)")
+            }
+            
+            val highRetryScenarios = results.filter { it.value.totalRetries > 200 }
+            if (highRetryScenarios.isNotEmpty()) {
+                add("높은 재시도율 시나리오: ${highRetryScenarios.keys.joinToString()}")
+            }
+            
+            val circuitBreakerScenarios = results.filter { it.value.circuitBreakerTriggers > 5 }
+            if (circuitBreakerScenarios.isNotEmpty()) {
+                add("서킷 브레이커 빈발 동작: ${circuitBreakerScenarios.keys.joinToString()}")
+            }
+        }
+        
+        return SystemResilienceAnalysis(
+            overallGrade = overallGrade,
+            averageScore = avgScore,
+            keyInsights = keyInsights.joinToString("\n")
+        )
+    }
+    
+    private fun generateResilienceRecommendations(results: Map<String, ResilienceMetrics>): List<String> {
+        val recommendations = mutableListOf<String>()
+        
+        results.forEach { (scenarioName, metrics) ->
+            when {
+                metrics.successRate < 80 -> {
+                    recommendations.add("$scenarioName: 성공률이 낮습니다 (${String.format("%.1f", metrics.successRate)}%). 재시도 로직과 장애 복구 메커니즘을 강화하세요.")
+                }
+                metrics.meanTimeToRecoveryMs > 3000 -> {
+                    recommendations.add("$scenarioName: 복구 시간이 길습니다 (${String.format("%.0f", metrics.meanTimeToRecoveryMs)}ms). 자동 복구 프로세스를 개선하세요.")
+                }
+                metrics.circuitBreakerTriggers > 10 -> {
+                    recommendations.add("$scenarioName: 서킷 브레이커가 자주 동작합니다 (${metrics.circuitBreakerTriggers}회). 임계값과 복구 전략을 조정하세요.")
+                }
+                metrics.availabilityPercentage < 99 -> {
+                    recommendations.add("$scenarioName: 가용성이 낮습니다 (${String.format("%.2f", metrics.availabilityPercentage)}%). 이중화와 로드 밸런싱을 검토하세요.")
+                }
+                metrics.resilienceScore >= 95 -> {
+                    recommendations.add("$scenarioName: 우수한 복원력을 보입니다 (${String.format("%.1f", metrics.resilienceScore)}점). 현재 설정을 유지하세요.")
+                }
+            }
+        }
+        
+        // 전체적인 권장사항
+        val avgScore = results.values.map { it.resilienceScore }.average()
+        when {
+            avgScore < 70 -> {
+                recommendations.add("전체적인 시스템 복원력이 부족합니다. Circuit Breaker, Bulkhead, Timeout 패턴을 적극 도입하세요.")
+                recommendations.add("장애 시나리오별 대응 플레이북을 작성하고 정기적인 카오스 엔지니어링을 수행하세요.")
+            }
+            avgScore < 85 -> {
+                recommendations.add("시스템 복원력이 양호하지만 개선의 여지가 있습니다. 모니터링과 알림 체계를 강화하세요.")
+            }
+            else -> {
+                recommendations.add("우수한 시스템 복원력을 보입니다. 현재 수준을 유지하며 지속적인 개선을 진행하세요.")
+            }
+        }
+        
+        return recommendations
     }
 }
 
@@ -1539,3 +1801,52 @@ class RandomLoadBalancer(nodes: List<ServerNode>) : LoadBalancer(nodes) {
         )
     }
 }
+
+// 시스템 복원력 분석 관련
+data class SystemResilienceAnalysisResult(
+    val resilienceMetrics: Map<String, ResilienceMetrics>,
+    val analysis: SystemResilienceAnalysis,
+    val recommendations: List<String>
+)
+
+data class ResilienceScenario(
+    val name: String,
+    val description: String,
+    val failureType: FailureType
+)
+
+enum class FailureType {
+    SERVICE_UNAVAILABLE,
+    DATABASE_CONNECTION,
+    NETWORK_PARTITION,
+    RESOURCE_EXHAUSTION,
+    CASCADING_FAILURE
+}
+
+data class ResilienceTestResult(
+    val testId: String,
+    val operationType: String,
+    val success: Boolean,
+    val executionTimeMs: Double,
+    val errorType: String?,
+    val retryCount: Int,
+    val circuitBreakerTriggered: Boolean
+)
+
+data class ResilienceMetrics(
+    val scenarioName: String,
+    val successRate: Double,
+    val averageLatencyMs: Double,
+    val totalRetries: Int,
+    val circuitBreakerTriggers: Int,
+    val meanTimeToRecoveryMs: Double,
+    val meanTimeBetweenFailuresMs: Double,
+    val availabilityPercentage: Double,
+    val resilienceScore: Double
+)
+
+data class SystemResilienceAnalysis(
+    val overallGrade: String,
+    val averageScore: Double,
+    val keyInsights: String
+)
